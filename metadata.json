@@ -1,0 +1,5 @@
+{
+  "name": "Copy of AutoCal Sync",
+  "description": "An intelligent agent that scans your email inbox, detects meeting invitations using Gemini AI, and automatically syncs them to your calendar.",
+  "requestFramePermissions": []
+}
