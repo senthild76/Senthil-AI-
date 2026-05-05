@@ -5,7 +5,77 @@ import { CANDIDATE_NAME } from './services/resumeData';
 import ControlPanel from './components/ControlPanel';
 import JobCard from './components/JobCard';
 import JobDetailPanel from './components/JobDetailPanel';
-import { Bot, Briefcase, Search, AlertTriangle } from './components/Icons';
+import { Bot, Briefcase, Search, AlertTriangle, Key } from './components/Icons';
+
+const LS_KEY = 'gemini_api_key';
+
+const ApiKeyGate: React.FC<{ onSave: (key: string) => void }> = ({ onSave }) => {
+  const [value, setValue] = useState('');
+  const [error, setError] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = value.trim();
+    if (!trimmed.startsWith('AIza') || trimmed.length < 30) {
+      setError('That doesn\'t look like a valid Gemini API key. It should start with "AIza".');
+      return;
+    }
+    localStorage.setItem(LS_KEY, trimmed);
+    onSave(trimmed);
+  };
+
+  return (
+    <div className="flex flex-col h-screen bg-slate-50 items-center justify-center px-4">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 p-8">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 bg-blue-700 rounded-xl flex items-center justify-center text-white">
+            <Bot size={20} />
+          </div>
+          <div>
+            <h1 className="font-black text-slate-900 text-lg leading-tight">LinkedIn Job Agent</h1>
+            <p className="text-xs text-slate-400">Powered by Gemini AI</p>
+          </div>
+        </div>
+
+        <p className="text-sm text-slate-600 mb-6 leading-relaxed">
+          Enter your <strong>Gemini API key</strong> to start the agent. It will discover matching
+          Singapore investment banking jobs and auto-apply for you.
+        </p>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-slate-500 block mb-1.5">Gemini API Key</label>
+            <div className="relative">
+              <input
+                type="password"
+                value={value}
+                onChange={e => { setValue(e.target.value); setError(''); }}
+                placeholder="AIza..."
+                className="w-full px-3 py-2.5 pr-10 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                autoFocus
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
+                <Key size={15} />
+              </span>
+            </div>
+            {error && <p className="text-xs text-red-600 mt-1.5">{error}</p>}
+          </div>
+
+          <button
+            type="submit"
+            className="w-full py-2.5 bg-blue-700 text-white rounded-lg font-bold text-sm hover:bg-blue-800 transition-colors"
+          >
+            Launch Agent
+          </button>
+        </form>
+
+        <p className="text-[11px] text-slate-400 mt-4 text-center">
+          Your key is stored only in your browser's localStorage — never sent anywhere except Gemini.
+        </p>
+      </div>
+    </div>
+  );
+};
 
 const FILTER_LABELS: Record<FilterTab, string> = {
   all: 'All Jobs',
@@ -14,6 +84,10 @@ const FILTER_LABELS: Record<FilterTab, string> = {
 };
 
 const App: React.FC = () => {
+  const [apiKey, setApiKey] = useState<string>(
+    () => localStorage.getItem(LS_KEY) || (process.env.API_KEY as string) || ''
+  );
+
   const [phase, setPhase] = useState<AgentPhase>('idle');
   const [jobMatches, setJobMatches] = useState<JobMatch[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
@@ -38,7 +112,7 @@ const App: React.FC = () => {
 
     try {
       // Phase 1 — Discover jobs
-      const jobs = await searchJobs();
+      const jobs = await searchJobs(apiKey);
       const initial: JobMatch[] = jobs.map(job => ({ job, status: 'queued' }));
       setJobMatches(initial);
       setStats(prev => ({ ...prev, jobsFound: jobs.length }));
@@ -57,7 +131,7 @@ const App: React.FC = () => {
         );
 
         try {
-          const analysis = await analyzeJobMatch(job);
+          const analysis = await analyzeJobMatch(job, apiKey);
           const isHighMatch = analysis.matchScore >= 80;
           const shouldApply = isHighMatch && autoApplyRef.current;
 
@@ -131,6 +205,10 @@ const App: React.FC = () => {
   };
 
   const selectedMatch = jobMatches.find(m => m.job.id === selectedJobId) ?? null;
+
+  if (!apiKey) {
+    return <ApiKeyGate onSave={setApiKey} />;
+  }
 
   return (
     <div className="flex flex-col h-screen bg-white overflow-hidden">

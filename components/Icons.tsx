@@ -32,6 +32,7 @@ import {
   ToggleLeft,
   ToggleRight,
   Info,
+  Key,
 } from 'lucide-react';
 
 export {
@@ -67,4 +68,5 @@ export {
   ToggleLeft,
   ToggleRight,
   Info,
+  Key,
 };

@@ -2,7 +2,8 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { JobListing, JobAnalysis } from '../types';
 import { RESUME_TEXT } from './resumeData';
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+const getClient = (apiKey: string) =>
+  new GoogleGenAI({ apiKey: apiKey || (process.env.API_KEY as string) || '' });
 
 /**
  * Uses Gemini AI to discover realistic LinkedIn job listings for Singapore's
@@ -12,7 +13,8 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
  * AI to simulate job discovery and generate realistic listings. Users should
  * also search linkedin.com/jobs directly using the search queries below.
  */
-export const searchJobs = async (): Promise<JobListing[]> => {
+export const searchJobs = async (apiKey: string): Promise<JobListing[]> => {
+  const ai = getClient(apiKey);
   const prompt = `
 You are an expert LinkedIn recruiter and job search agent specializing in Singapore's
 financial services and investment banking sector.
@@ -119,7 +121,8 @@ Today's date: ${new Date().toISOString().split('T')[0]}
  * Uses Gemini AI to analyze how well the candidate matches a job listing.
  * Returns a detailed match analysis including score, matched/gap skills, and cover letter.
  */
-export const analyzeJobMatch = async (job: JobListing): Promise<JobAnalysis> => {
+export const analyzeJobMatch = async (job: JobListing, apiKey: string): Promise<JobAnalysis> => {
+  const ai = getClient(apiKey);
   const prompt = `
 You are an expert career advisor and ATS (Applicant Tracking System) specialist.
 Analyze the match between this candidate and the job posting with precision and honesty.
