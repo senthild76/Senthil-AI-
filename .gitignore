@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Environment variables (keep API keys out of git)
+.env
+.env.*
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
