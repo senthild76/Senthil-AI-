@@ -98,11 +98,13 @@ const App: React.FC = () => {
   });
   const [error, setError] = useState<string | null>(null);
 
-  // Track auto-apply setting at agent-start time (avoids stale closure issues)
+  // Refs so the async loop always reads the latest values, not stale closures
   const autoApplyRef = useRef(autoApply);
+  const apiKeyRef = useRef(apiKey);
 
   const startAgent = useCallback(async () => {
     autoApplyRef.current = autoApply;
+    apiKeyRef.current = apiKey;
     setPhase('searching');
     setError(null);
     setJobMatches([]);
@@ -112,7 +114,7 @@ const App: React.FC = () => {
 
     try {
       // Phase 1 — Discover jobs
-      const jobs = await searchJobs(apiKey);
+      const jobs = await searchJobs(apiKeyRef.current);
       const initial: JobMatch[] = jobs.map(job => ({ job, status: 'queued' }));
       setJobMatches(initial);
       setStats(prev => ({ ...prev, jobsFound: jobs.length }));
@@ -131,7 +133,7 @@ const App: React.FC = () => {
         );
 
         try {
-          const analysis = await analyzeJobMatch(job, apiKey);
+          const analysis = await analyzeJobMatch(job, apiKeyRef.current);
           const isHighMatch = analysis.matchScore >= 80;
           const shouldApply = isHighMatch && autoApplyRef.current;
 
@@ -168,12 +170,11 @@ const App: React.FC = () => {
 
     } catch (err) {
       console.error('Agent error:', err);
-      setError(
-        'The agent encountered an error. Please ensure your Gemini API key is set (API_KEY) and try again.'
-      );
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Agent error: ${msg}`);
       setPhase('idle');
     }
-  }, [autoApply]);
+  }, [autoApply, apiKey]);
 
   const handleApply = useCallback((jobId: string) => {
     setJobMatches(prev =>
