@@ -1,222 +1,288 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import EmailList from './components/EmailList';
-import CalendarView from './components/CalendarView';
-import { extractMeetingDetails } from './services/geminiService';
-import { Email, CalendarEvent, ProcessingStats } from './types';
-import { getRelativeDate } from './utils/dateUtils';
-import { Sparkles, RefreshCw } from './components/Icons';
+import React, { useState, useCallback, useRef } from 'react';
+import { JobMatch, AgentPhase, AgentStats, FilterTab } from './types';
+import { searchJobs, analyzeJobMatch } from './services/jobAgentService';
+import { CANDIDATE_NAME } from './services/resumeData';
+import ControlPanel from './components/ControlPanel';
+import JobCard from './components/JobCard';
+import JobDetailPanel from './components/JobDetailPanel';
+import { Bot, Briefcase, Search, AlertTriangle } from './components/Icons';
 
-// --- Mock Data Setup ---
-const generateMockEmails = (): Email[] => {
-  const today = new Date();
-  return [
-    {
-      id: 'e1',
-      from: 'sarah.manager@techcorp.com',
-      subject: 'Quarterly Review Meeting',
-      body: 'Hi there, can we meet next Monday at 10:00 AM to discuss the Q3 results? We will need about an hour. We will meet in Conference Room B. I will invite John and Mike as well.',
-      receivedAt: new Date(today.getTime() - 1000 * 60 * 60 * 2), // 2 hours ago
-      isRead: false,
-      isProcessed: false,
-      status: 'pending'
-    },
-    {
-      id: 'e2',
-      from: 'newsletter@devweekly.com',
-      subject: 'Weekly Developer News - React 19 is coming!',
-      body: 'Here are the top stories for this week. 1. React Server Components. 2. Tailwind v4. No meetings here, just news!',
-      receivedAt: new Date(today.getTime() - 1000 * 60 * 60 * 5),
-      isRead: false,
-      isProcessed: false,
-      status: 'pending'
-    },
-    {
-      id: 'e3',
-      from: 'alex.design@creative.studio',
-      subject: 'Coffee catchup?',
-      body: 'Hey! Long time no see. Are you free to grab a coffee at The Grind tomorrow at 2pm? Just a quick 30 min chat to catch up.',
-      receivedAt: new Date(today.getTime() - 1000 * 60 * 60 * 24),
-      isRead: true,
-      isProcessed: false,
-      status: 'pending'
-    },
-    {
-      id: 'e4',
-      from: 'billing@cloudservice.net',
-      subject: 'Invoice #44021 Payment Confirmation',
-      body: 'Thank you for your payment of $49.00. Your transaction ID is TX999222. See attached PDF.',
-      receivedAt: new Date(today.getTime() - 1000 * 60 * 60 * 26),
-      isRead: true,
-      isProcessed: false,
-      status: 'pending'
-    },
-    {
-        id: 'e5',
-        from: 'recruiter@hiring.io',
-        subject: 'Interview Schedule - Frontend Engineer',
-        body: 'We are excited to move forward. Could you do a technical interview next Wednesday at 4 PM PST? It will be a Google Meet link. Expect 90 minutes.',
-        receivedAt: new Date(today.getTime() - 1000 * 60 * 60 * 48),
-        isRead: false,
-        isProcessed: false,
-        status: 'pending'
-    }
-  ];
+const FILTER_LABELS: Record<FilterTab, string> = {
+  all: 'All Jobs',
+  'high-match': 'High Match ≥80%',
+  applied: 'Applied',
 };
 
 const App: React.FC = () => {
-  const [emails, setEmails] = useState<Email[]>([]);
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
-  const [isScanning, setIsScanning] = useState(false);
-  const [stats, setStats] = useState<ProcessingStats>({ total: 0, processed: 0, meetingsFound: 0 });
+  const [phase, setPhase] = useState<AgentPhase>('idle');
+  const [jobMatches, setJobMatches] = useState<JobMatch[]>([]);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [autoApply, setAutoApply] = useState<boolean>(true);
+  const [filterTab, setFilterTab] = useState<FilterTab>('all');
+  const [stats, setStats] = useState<AgentStats>({
+    jobsFound: 0, jobsAnalyzed: 0, highMatches: 0, applied: 0,
+  });
+  const [error, setError] = useState<string | null>(null);
 
-  // Initialize Data
-  useEffect(() => {
-    setEmails(generateMockEmails());
+  // Track auto-apply setting at agent-start time (avoids stale closure issues)
+  const autoApplyRef = useRef(autoApply);
+
+  const startAgent = useCallback(async () => {
+    autoApplyRef.current = autoApply;
+    setPhase('searching');
+    setError(null);
+    setJobMatches([]);
+    setSelectedJobId(null);
+    setFilterTab('all');
+    setStats({ jobsFound: 0, jobsAnalyzed: 0, highMatches: 0, applied: 0 });
+
+    try {
+      // Phase 1 — Discover jobs
+      const jobs = await searchJobs();
+      const initial: JobMatch[] = jobs.map(job => ({ job, status: 'queued' }));
+      setJobMatches(initial);
+      setStats(prev => ({ ...prev, jobsFound: jobs.length }));
+
+      // Phase 2 — Analyze each job sequentially
+      setPhase('analyzing');
+
+      let analyzed = 0;
+      let highMatches = 0;
+      let applied = 0;
+
+      for (const job of jobs) {
+        // Mark as analyzing
+        setJobMatches(prev =>
+          prev.map(m => m.job.id === job.id ? { ...m, status: 'analyzing' } : m)
+        );
+
+        try {
+          const analysis = await analyzeJobMatch(job);
+          const isHighMatch = analysis.matchScore >= 80;
+          const shouldApply = isHighMatch && autoApplyRef.current;
+
+          if (isHighMatch) highMatches++;
+          if (shouldApply) applied++;
+
+          setJobMatches(prev =>
+            prev.map(m =>
+              m.job.id === job.id
+                ? { ...m, analysis, status: shouldApply ? 'applied' : isHighMatch ? 'matched' : 'low-match' }
+                : m
+            )
+          );
+
+          analyzed++;
+          setStats({ jobsFound: jobs.length, jobsAnalyzed: analyzed, highMatches, applied });
+
+          // Auto-select first high-match job when it appears
+          if (shouldApply && !selectedJobId) {
+            setSelectedJobId(job.id);
+          }
+
+        } catch (jobErr) {
+          console.error('Error analyzing job:', job.id, jobErr);
+          setJobMatches(prev =>
+            prev.map(m => m.job.id === job.id ? { ...m, status: 'low-match' } : m)
+          );
+          analyzed++;
+          setStats(prev => ({ ...prev, jobsAnalyzed: analyzed }));
+        }
+      }
+
+      setPhase('done');
+
+    } catch (err) {
+      console.error('Agent error:', err);
+      setError(
+        'The agent encountered an error. Please ensure your Gemini API key is set (API_KEY) and try again.'
+      );
+      setPhase('idle');
+    }
+  }, [autoApply]);
+
+  const handleApply = useCallback((jobId: string) => {
+    setJobMatches(prev =>
+      prev.map(m => m.job.id === jobId ? { ...m, status: 'applied' } : m)
+    );
+    setStats(prev => ({ ...prev, applied: prev.applied + 1 }));
   }, []);
 
-  const handleSelectEmail = (email: Email) => {
-    setSelectedEmailId(email.id);
-    if (!email.isRead) {
-      setEmails(prev => prev.map(e => e.id === email.id ? { ...e, isRead: true } : e));
-    }
+  const handleReset = useCallback(() => {
+    setPhase('idle');
+    setJobMatches([]);
+    setSelectedJobId(null);
+    setFilterTab('all');
+    setStats({ jobsFound: 0, jobsAnalyzed: 0, highMatches: 0, applied: 0 });
+    setError(null);
+  }, []);
+
+  // Filter logic
+  const filteredJobs = jobMatches.filter(m => {
+    if (filterTab === 'high-match') return m.analysis && m.analysis.matchScore >= 80;
+    if (filterTab === 'applied') return m.status === 'applied';
+    return true;
+  });
+
+  const tabCounts: Record<FilterTab, number> = {
+    all: jobMatches.length,
+    'high-match': jobMatches.filter(m => m.analysis && m.analysis.matchScore >= 80).length,
+    applied: jobMatches.filter(m => m.status === 'applied').length,
   };
 
-  const scanInbox = useCallback(async () => {
-    if (isScanning) return;
-    setIsScanning(true);
-    
-    // Filter pending emails
-    const pendingEmails = emails.filter(e => !e.isProcessed);
-    
-    let processedCount = stats.processed;
-    let meetingsCount = stats.meetingsFound;
-
-    // Process sequentially to visualize progress
-    for (const email of pendingEmails) {
-      // Set status to processing
-      setEmails(prev => prev.map(e => e.id === email.id ? { ...e, status: 'processing' } : e));
-      
-      try {
-        // Call Gemini
-        const result = await extractMeetingDetails(email.body, email.subject, email.from);
-        
-        if (result.isMeeting && result.start && result.end) {
-            // Create Calendar Event
-            const newEvent: CalendarEvent = {
-                id: `evt-${Date.now()}-${Math.random()}`,
-                title: result.title || 'Untitled Meeting',
-                start: new Date(result.start),
-                end: new Date(result.end),
-                location: result.location,
-                participants: result.participants || [email.from],
-                description: result.description || email.body.substring(0, 100) + '...',
-                sourceEmailId: email.id
-            };
-            
-            setEvents(prev => [...prev, newEvent]);
-            setEmails(prev => prev.map(e => e.id === email.id ? { ...e, isProcessed: true, status: 'synced' } : e));
-            meetingsCount++;
-        } else {
-            setEmails(prev => prev.map(e => e.id === email.id ? { ...e, isProcessed: true, status: 'ignored' } : e));
-        }
-
-      } catch (err) {
-          console.error("Error processing email", email.id, err);
-          setEmails(prev => prev.map(e => e.id === email.id ? { ...e, status: 'error' } : e));
-      }
-      
-      processedCount++;
-      setStats({
-          total: emails.length,
-          processed: processedCount,
-          meetingsFound: meetingsCount
-      });
-      
-      // Artificial delay for UX so user can see it happening
-      await new Promise(r => setTimeout(r, 800));
-    }
-    
-    setIsScanning(false);
-  }, [emails, isScanning, stats]);
-
-  const selectedEmail = emails.find(e => e.id === selectedEmailId);
+  const selectedMatch = jobMatches.find(m => m.job.id === selectedJobId) ?? null;
 
   return (
-    <div className="flex flex-col h-screen bg-white">
-      {/* Header */}
-      <header className="h-16 border-b border-slate-200 bg-white flex items-center justify-between px-6 shrink-0 z-20 shadow-sm relative">
+    <div className="flex flex-col h-screen bg-white overflow-hidden">
+
+      {/* ── Header ── */}
+      <header className="h-14 border-b border-slate-200 bg-white flex items-center justify-between px-6 shrink-0 shadow-sm z-20">
         <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white">
-                <Sparkles size={18} />
-            </div>
-            <h1 className="font-bold text-xl tracking-tight text-slate-800">AutoCal <span className="text-indigo-600">Sync</span></h1>
+          <div className="w-8 h-8 bg-blue-700 rounded-lg flex items-center justify-center text-white shadow-sm">
+            <Bot size={17} />
+          </div>
+          <div className="leading-tight">
+            <h1 className="font-black text-slate-900 text-base tracking-tight">LinkedIn Job Agent</h1>
+            <p className="text-[11px] text-slate-400 font-medium">Powered by Gemini AI • {CANDIDATE_NAME}</p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-4">
-             {/* Stats Pill */}
-             {(stats.processed > 0) && (
-                 <div className="text-xs font-medium text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200">
-                    {stats.processed} Processed • {stats.meetingsFound} Synced
-                 </div>
-             )}
-
-            <button
-                onClick={scanInbox}
-                disabled={isScanning || emails.every(e => e.isProcessed)}
-                className={`
-                    flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-sm transition-all shadow-sm
-                    ${isScanning 
-                        ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
-                        : 'bg-indigo-600 text-white hover:bg-indigo-700 hover:shadow-indigo-100'
-                    }
-                `}
-            >
-                <RefreshCw size={16} className={isScanning ? 'animate-spin' : ''} />
-                {isScanning ? 'Scanning Inbox...' : 'Scan & Sync Calendar'}
-            </button>
+        <div className="flex items-center gap-3">
+          {phase === 'done' && stats.highMatches > 0 && (
+            <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 px-3 py-1.5 rounded-full text-xs font-bold">
+              ✓ {stats.highMatches} high-match job{stats.highMatches !== 1 ? 's' : ''} found
+              {stats.applied > 0 && ` • ${stats.applied} applied`}
+            </div>
+          )}
+          {phase === 'done' && stats.highMatches === 0 && (
+            <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-700 px-3 py-1.5 rounded-full text-xs font-bold">
+              {stats.jobsFound} jobs analyzed • refine search to find better matches
+            </div>
+          )}
+          <span className="text-xs text-slate-400 hidden sm:block">Singapore • Investment Banking</span>
         </div>
       </header>
 
-      {/* Main Content Area */}
+      {/* ── Main Layout ── */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Email Sidebar */}
-        <EmailList 
-            emails={emails} 
-            onSelectEmail={handleSelectEmail} 
-            selectedEmailId={selectedEmailId} 
+
+        {/* Left: Control Panel */}
+        <ControlPanel
+          phase={phase}
+          stats={stats}
+          autoApply={autoApply}
+          onAutoApplyChange={setAutoApply}
+          onStart={startAgent}
+          onReset={handleReset}
         />
 
-        {/* Detail/Calendar Area */}
-        <div className="flex-1 flex flex-col bg-slate-50 relative overflow-hidden">
-            {/* If an email is selected, show it on mobile, but here we do split view default for desktop */}
-            
-            {/* Calendar Overlay / Main View */}
-             <CalendarView events={events} />
+        {/* Center: Job List */}
+        <div className="w-96 shrink-0 border-r border-slate-200 flex flex-col bg-white">
 
-             {/* Simple Detail Panel Overlay (Optional context) */}
-             {selectedEmail && (
-                 <div className="absolute bottom-6 right-6 w-96 bg-white rounded-xl shadow-xl border border-slate-200 p-5 z-30 animate-in slide-in-from-bottom-4 duration-300">
-                     <div className="flex justify-between items-start mb-4">
-                        <h3 className="font-bold text-slate-800">Email Preview</h3>
-                        <button onClick={() => setSelectedEmailId(null)} className="text-slate-400 hover:text-slate-600">
-                            Close
-                        </button>
-                     </div>
-                     <p className="text-sm font-semibold text-slate-900 mb-1">{selectedEmail.subject}</p>
-                     <p className="text-xs text-slate-500 mb-3">From: {selectedEmail.from}</p>
-                     <p className="text-sm text-slate-600 leading-relaxed max-h-40 overflow-y-auto">
-                         {selectedEmail.body}
-                     </p>
-                     
-                     {selectedEmail.status === 'synced' && (
-                         <div className="mt-4 pt-3 border-t border-slate-100 flex items-center gap-2 text-green-600 text-sm font-medium">
-                             <Sparkles size={14} />
-                             Event created successfully
-                         </div>
-                     )}
-                 </div>
-             )}
+          {/* Filter Tabs — only show once jobs loaded */}
+          {jobMatches.length > 0 && (
+            <div className="flex border-b border-slate-200 bg-white shrink-0">
+              {(Object.keys(FILTER_LABELS) as FilterTab[]).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setFilterTab(tab)}
+                  className={`flex-1 py-2.5 text-xs font-bold transition-colors border-b-2 ${
+                    filterTab === tab
+                      ? 'text-blue-700 border-blue-600 bg-blue-50/60'
+                      : 'text-slate-400 border-transparent hover:text-slate-600'
+                  }`}
+                >
+                  {tab === 'all' ? 'All' : tab === 'high-match' ? '≥80%' : 'Applied'}
+                  <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${
+                    filterTab === tab ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-400'
+                  }`}>
+                    {tabCounts[tab]}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Job Cards List */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+
+            {/* Error */}
+            {error && (
+              <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700">
+                <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                {error}
+              </div>
+            )}
+
+            {/* Idle state */}
+            {phase === 'idle' && !error && (
+              <div className="flex flex-col items-center justify-center h-full text-center py-16 px-6">
+                <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-4 border border-blue-100">
+                  <Briefcase size={26} className="text-blue-500" />
+                </div>
+                <h3 className="font-bold text-slate-700 mb-2">Ready to Search</h3>
+                <p className="text-sm text-slate-500 leading-relaxed">
+                  Click <strong>Start Job Agent</strong> to discover matching LinkedIn jobs in
+                  Singapore's investment banking sector and auto-apply to the best matches.
+                </p>
+              </div>
+            )}
+
+            {/* Searching state (no jobs yet) */}
+            {phase === 'searching' && jobMatches.length === 0 && (
+              <div className="flex flex-col items-center justify-center h-full text-center py-16 px-6">
+                <div className="w-12 h-12 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center mb-4 animate-pulse">
+                  <Search size={20} className="text-blue-500" />
+                </div>
+                <p className="text-sm font-semibold text-slate-600">Scanning LinkedIn for matching roles…</p>
+                <p className="text-xs text-slate-400 mt-1">Searching Singapore's investment banking sector</p>
+              </div>
+            )}
+
+            {/* Job cards */}
+            {filteredJobs.map(jobMatch => (
+              <JobCard
+                key={jobMatch.job.id}
+                jobMatch={jobMatch}
+                isSelected={selectedJobId === jobMatch.job.id}
+                onClick={() => setSelectedJobId(jobMatch.job.id)}
+              />
+            ))}
+
+            {/* Empty filtered state */}
+            {phase === 'done' && filteredJobs.length === 0 && (
+              <div className="text-center py-10 text-sm text-slate-400">
+                No jobs in this category.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right: Job Detail */}
+        <div className="flex-1 overflow-hidden bg-slate-50">
+          {selectedMatch ? (
+            <JobDetailPanel jobMatch={selectedMatch} onApply={handleApply} />
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center text-center px-8">
+              <div className="w-24 h-24 bg-white border-2 border-slate-200 rounded-3xl flex items-center justify-center mb-5 shadow-sm">
+                <Bot size={40} className="text-slate-300" />
+              </div>
+              <h3 className="font-bold text-slate-500 text-lg mb-2">
+                {phase === 'idle' ? 'Start the Agent' : 'Select a Job'}
+              </h3>
+              <p className="text-sm text-slate-400 max-w-sm leading-relaxed">
+                {phase === 'idle'
+                  ? 'The agent will discover jobs matching your 20+ year investment banking profile, score each against your resume, generate tailored cover letters, and auto-apply to the best matches.'
+                  : 'Click any job in the list to see the full AI match analysis, matched skills, skill gaps, and your tailored cover letter.'
+                }
+              </p>
+              {phase === 'analyzing' && jobMatches.some(m => m.analysis && m.analysis.matchScore >= 80) && (
+                <p className="text-xs text-emerald-600 font-semibold mt-4 animate-pulse">
+                  ✓ High-match jobs found — click to review
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
