@@ -69,9 +69,18 @@ const ApiKeyGate: React.FC<{ onSave: (key: string) => void }> = ({ onSave }) => 
           </button>
         </form>
 
-        <p className="text-[11px] text-slate-400 mt-4 text-center">
-          Your key is stored only in your browser's localStorage — never sent anywhere except Gemini.
-        </p>
+        <div className="mt-4 pt-4 border-t border-slate-100 text-center space-y-1">
+          <p className="text-[11px] text-slate-400">
+            Your key is stored only in your browser's localStorage — never sent anywhere except Gemini.
+          </p>
+          <p className="text-[11px] text-slate-400">
+            Get a free key at{' '}
+            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer"
+               className="text-blue-500 underline">
+              aistudio.google.com/apikey
+            </a>
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -229,10 +238,10 @@ const App: React.FC = () => {
         <div className="flex items-center gap-3">
           <button
             onClick={() => { localStorage.removeItem(LS_KEY); setApiKey(''); }}
-            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 border border-slate-200 hover:border-slate-300 px-2.5 py-1.5 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
             title="Change API key"
           >
-            <Key size={12} /> API Key
+            <Key size={13} /> Change API Key
           </button>
 
           {phase === 'done' && stats.highMatches > 0 && (
@@ -295,9 +304,17 @@ const App: React.FC = () => {
 
             {/* Error */}
             {error && (
-              <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700">
-                <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-                {error}
+              <div className="p-4 bg-red-50 border border-red-200 rounded-xl space-y-3">
+                <div className="flex items-start gap-2 text-xs text-red-700">
+                  <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                  <span>{error}</span>
+                </div>
+                <button
+                  onClick={() => { localStorage.removeItem(LS_KEY); setApiKey(''); }}
+                  className="w-full flex items-center justify-center gap-2 py-2 bg-white border border-red-300 text-red-600 hover:bg-red-50 rounded-lg text-xs font-semibold transition-colors"
+                >
+                  <Key size={13} /> Re-enter API Key
+                </button>
               </div>
             )}
 
