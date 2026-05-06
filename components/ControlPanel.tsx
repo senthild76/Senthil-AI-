@@ -17,6 +17,9 @@ const LOCATIONS = [
   'Tokyo',
   'Dubai',
   'Mumbai',
+  'Bengaluru',
+  'Pune',
+  'Chennai',
 ];
 
 const SENIORITY_LEVELS = [
