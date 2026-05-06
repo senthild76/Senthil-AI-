@@ -13,26 +13,28 @@ const getClient = (apiKey: string) =>
  * AI to simulate job discovery and generate realistic listings. Users should
  * also search linkedin.com/jobs directly using the search queries below.
  */
-export const searchJobs = async (apiKey: string): Promise<JobListing[]> => {
+export const searchJobs = async (apiKey: string, location: string, seniority: string): Promise<JobListing[]> => {
   const ai = getClient(apiKey);
   const prompt = `
-You are an expert LinkedIn recruiter and job search agent specializing in Singapore's
+You are an expert LinkedIn recruiter and job search agent specializing in the global
 financial services and investment banking sector.
 
 Generate exactly 12 realistic LinkedIn job listings for the following senior IT candidate.
-These should be jobs that genuinely exist in Singapore's banking/finance sector right now.
+These should be jobs that genuinely exist in the target location's banking/finance sector right now.
 
 CANDIDATE PROFILE:
 ${RESUME_TEXT}
 
-REQUIREMENTS FOR JOB LISTINGS:
-1. Generate from real banks/financial institutions operating in Singapore, e.g.:
-   DBS Bank, OCBC Bank, UOB, Standard Chartered, HSBC, Citibank, JP Morgan, Goldman Sachs,
-   Morgan Stanley, Barclays, BNP Paribas, Deutsche Bank, Nomura, Macquarie, Societe Generale,
-   Credit Agricole, MUFG, Mizuho, ANZ, Bank of America Merrill Lynch.
+SEARCH CRITERIA:
+- Location: ${location}
+- Seniority Level: ${seniority}
 
-2. Role types (mix these):
-   - VP/Director Production Technology / Application Support
+REQUIREMENTS FOR JOB LISTINGS:
+1. Generate from real banks/financial institutions operating in ${location}, e.g. major
+   global investment banks, local/regional banks, asset managers, and FinTechs in that city.
+
+2. Role types (mix these) at ${seniority} level:
+   - Production Technology / Application Support
    - SRE Lead / Manager
    - Front Office Technology Support (Rates, Credit, FX, Equities)
    - Market Data Infrastructure Manager
@@ -40,7 +42,7 @@ REQUIREMENTS FOR JOB LISTINGS:
    - Risk Technology Support Lead
    - Platform Engineering / DevOps Lead (Financial Services)
 
-3. Salary ranges realistic for Singapore Director/VP level: SGD 160,000 – 300,000 p.a.
+3. Salary ranges realistic for ${seniority} level in ${location}.
 
 4. Mix of match levels so the analysis is interesting:
    - 4 jobs should be excellent matches (will score 80-95%)

@@ -83,3 +83,8 @@ export interface AgentStats {
 
 export type AgentPhase = 'idle' | 'searching' | 'analyzing' | 'done';
 export type FilterTab = 'all' | 'high-match' | 'applied';
+
+export interface SearchConfig {
+  location: string;
+  seniority: string;
+}

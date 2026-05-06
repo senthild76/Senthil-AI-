@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef } from 'react';
-import { JobMatch, AgentPhase, AgentStats, FilterTab } from './types';
+import { JobMatch, AgentPhase, AgentStats, FilterTab, SearchConfig } from './types';
 import { searchJobs, analyzeJobMatch } from './services/jobAgentService';
 import { CANDIDATE_NAME } from './services/resumeData';
 import ControlPanel from './components/ControlPanel';
@@ -97,6 +97,10 @@ const App: React.FC = () => {
     () => localStorage.getItem(LS_KEY) || (process.env.API_KEY as string) || ''
   );
 
+  const [config, setConfig] = useState<SearchConfig>({
+    location: 'Singapore',
+    seniority: 'Director / VP / AVP',
+  });
   const [phase, setPhase] = useState<AgentPhase>('idle');
   const [jobMatches, setJobMatches] = useState<JobMatch[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
@@ -110,10 +114,12 @@ const App: React.FC = () => {
   // Refs so the async loop always reads the latest values, not stale closures
   const autoApplyRef = useRef(autoApply);
   const apiKeyRef = useRef(apiKey);
+  const configRef = useRef(config);
 
   const startAgent = useCallback(async () => {
     autoApplyRef.current = autoApply;
     apiKeyRef.current = apiKey;
+    configRef.current = config;
     setPhase('searching');
     setError(null);
     setJobMatches([]);
@@ -123,7 +129,7 @@ const App: React.FC = () => {
 
     try {
       // Phase 1 — Discover jobs
-      const jobs = await searchJobs(apiKeyRef.current);
+      const jobs = await searchJobs(apiKeyRef.current, configRef.current.location, configRef.current.seniority);
       const initial: JobMatch[] = jobs.map(job => ({ job, status: 'queued' }));
       setJobMatches(initial);
       setStats(prev => ({ ...prev, jobsFound: jobs.length }));
@@ -183,7 +189,7 @@ const App: React.FC = () => {
       setError(`Agent error: ${msg}`);
       setPhase('idle');
     }
-  }, [autoApply, apiKey]);
+  }, [autoApply, apiKey, config]);
 
   const handleApply = useCallback((jobId: string) => {
     setJobMatches(prev =>
@@ -266,6 +272,8 @@ const App: React.FC = () => {
         <ControlPanel
           phase={phase}
           stats={stats}
+          config={config}
+          onConfigChange={setConfig}
           autoApply={autoApply}
           onAutoApplyChange={setAutoApply}
           onStart={startAgent}

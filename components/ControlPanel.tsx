@@ -1,25 +1,55 @@
 import React from 'react';
-import { AgentPhase, AgentStats } from '../types';
+import { AgentPhase, AgentStats, SearchConfig } from '../types';
 import { Bot, Loader, Briefcase, Target, Send, TrendingUp, Award } from './Icons';
 import {
   CANDIDATE_NAME,
   CANDIDATE_EMAIL,
-  CANDIDATE_LOCATION,
   KEY_SKILLS_TAGS,
   TARGET_ROLES,
 } from '../services/resumeData';
 
+const LOCATIONS = [
+  'Singapore',
+  'Hong Kong',
+  'London',
+  'New York',
+  'Sydney',
+  'Tokyo',
+  'Dubai',
+  'Mumbai',
+];
+
+const SENIORITY_LEVELS = [
+  'Director / VP / AVP',
+  'Managing Director',
+  'Director',
+  'Vice President (VP)',
+  'Assistant Vice President (AVP)',
+  'Senior Manager',
+  'Manager',
+];
+
 interface Props {
   phase: AgentPhase;
   stats: AgentStats;
+  config: SearchConfig;
+  onConfigChange: (config: SearchConfig) => void;
   autoApply: boolean;
   onAutoApplyChange: (val: boolean) => void;
   onStart: () => void;
   onReset: () => void;
 }
 
+const selectClass = `
+  w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700
+  focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400
+  cursor-pointer appearance-none
+  bg-[url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")]
+  bg-no-repeat bg-[right_0.5rem_center]
+`;
+
 const ControlPanel: React.FC<Props> = ({
-  phase, stats, autoApply, onAutoApplyChange, onStart, onReset,
+  phase, stats, config, onConfigChange, autoApply, onAutoApplyChange, onStart, onReset,
 }) => {
   const isRunning = phase === 'searching' || phase === 'analyzing';
   const isDone = phase === 'done';
@@ -40,7 +70,7 @@ const ControlPanel: React.FC<Props> = ({
         </div>
         <h2 className="font-bold text-slate-900 text-sm leading-tight">{CANDIDATE_NAME}</h2>
         <p className="text-xs text-slate-500 mt-0.5">{CANDIDATE_EMAIL}</p>
-        <p className="text-xs text-slate-400 mt-0.5">{CANDIDATE_LOCATION} • 20+ yrs exp</p>
+        <p className="text-xs text-slate-400 mt-0.5">20+ yrs exp • Investment Banking</p>
         <div className="mt-3 flex flex-wrap gap-1">
           {KEY_SKILLS_TAGS.slice(0, 8).map(tag => (
             <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded font-semibold">
@@ -54,29 +84,43 @@ const ControlPanel: React.FC<Props> = ({
       <div className="p-5 border-b border-slate-100 space-y-4">
         <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Search Configuration</h3>
 
+        {/* Location Dropdown */}
         <div>
-          <label className="text-xs text-slate-500 font-semibold block mb-1">Location</label>
-          <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700">
-            Singapore
-          </div>
+          <label className="text-xs text-slate-500 font-semibold block mb-1.5">
+            📍 Location
+          </label>
+          <select
+            value={config.location}
+            onChange={e => onConfigChange({ ...config, location: e.target.value })}
+            disabled={isRunning}
+            className={selectClass}
+          >
+            {LOCATIONS.map(loc => (
+              <option key={loc} value={loc}>{loc}</option>
+            ))}
+          </select>
         </div>
 
+        {/* Seniority Dropdown */}
         <div>
-          <label className="text-xs text-slate-500 font-semibold block mb-1">Seniority Level</label>
-          <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700">
-            Director / VP / AVP
-          </div>
+          <label className="text-xs text-slate-500 font-semibold block mb-1.5">
+            🎖 Seniority Level
+          </label>
+          <select
+            value={config.seniority}
+            onChange={e => onConfigChange({ ...config, seniority: e.target.value })}
+            disabled={isRunning}
+            className={selectClass}
+          >
+            {SENIORITY_LEVELS.map(level => (
+              <option key={level} value={level}>{level}</option>
+            ))}
+          </select>
         </div>
 
+        {/* Target Roles */}
         <div>
-          <label className="text-xs text-slate-500 font-semibold block mb-1">Industry</label>
-          <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700">
-            Investment Banking / FinTech
-          </div>
-        </div>
-
-        <div>
-          <label className="text-xs text-slate-500 font-semibold block mb-1.5">Target Roles</label>
+          <label className="text-xs text-slate-500 font-semibold block mb-1.5">🎯 Target Roles</label>
           <ul className="space-y-1">
             {TARGET_ROLES.slice(0, 5).map(role => (
               <li key={role} className="flex items-start gap-1.5 text-xs text-slate-600">
@@ -168,7 +212,6 @@ const ControlPanel: React.FC<Props> = ({
             ))}
           </div>
 
-          {/* Match Rate */}
           {stats.jobsAnalyzed > 0 && (
             <div className="mt-3 bg-slate-50 border border-slate-200 rounded-xl p-3">
               <div className="flex items-center justify-between mb-1.5">
@@ -193,11 +236,9 @@ const ControlPanel: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Bottom info */}
       <div className="mt-auto p-4 border-t border-slate-100">
         <p className="text-[10px] text-slate-400 leading-relaxed">
-          Jobs are AI-discovered based on your profile. The agent analyzes each listing and
-          auto-applies (prepares materials + opens LinkedIn) for ≥80% matches.
+          Jobs are AI-discovered based on your profile. Auto-apply prepares your cover letter and opens LinkedIn for ≥80% matches.
         </p>
       </div>
     </aside>
