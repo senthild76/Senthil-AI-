@@ -5,6 +5,26 @@ import { RESUME_TEXT } from './resumeData';
 const getClient = (apiKey: string) =>
   new GoogleGenAI({ apiKey: apiKey || (process.env.API_KEY as string) || '' });
 
+const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 5): Promise<T> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const is503 = msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand');
+      if (is503 && attempt < maxAttempts) {
+        const delay = Math.min(2000 * 2 ** (attempt - 1), 30000);
+        await sleep(delay);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('Max retry attempts exceeded');
+}
+
 /**
  * Uses Gemini AI to discover realistic LinkedIn job listings for Singapore's
  * investment banking sector that align with the candidate's profile.
@@ -64,7 +84,7 @@ REQUIREMENTS FOR JOB LISTINGS:
 Today's date: ${new Date().toISOString().split('T')[0]}
 `;
 
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model: 'gemini-2.5-flash',
     contents: prompt,
     config: {
@@ -112,7 +132,7 @@ Today's date: ${new Date().toISOString().split('T')[0]}
         required: ['jobs'],
       },
     },
-  });
+  }));
 
   if (!response.text) throw new Error('No response from Gemini for job search');
   const data = JSON.parse(response.text);
@@ -175,7 +195,7 @@ ANALYSIS INSTRUCTIONS:
    If score < 60, return empty string.
 `;
 
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model: 'gemini-2.5-flash',
     contents: prompt,
     config: {
@@ -197,7 +217,7 @@ ANALYSIS INSTRUCTIONS:
         ],
       },
     },
-  });
+  }));
 
   if (!response.text) throw new Error('No response from Gemini for job analysis');
   return JSON.parse(response.text) as JobAnalysis;
